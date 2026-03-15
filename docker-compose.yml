@@ -1,0 +1,77 @@
+version: "3.9"
+
+services:
+
+  # ── MySQL Database ────────────────────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: taskflow_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE:      ${MYSQL_DATABASE:-todoapp}
+      MYSQL_USER:          ${MYSQL_USER:-todouser}
+      MYSQL_PASSWORD:      ${MYSQL_PASSWORD:-todopassword}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/my.cnf:/etc/mysql/conf.d/taskflow.cnf:ro
+    # Do NOT expose 3306 to the host in production
+    # ports:
+    #   - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost",
+             "-u", "root", "--password=${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - taskflow_net
+
+  # ── FastAPI Backend ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: taskflow_backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-todouser}:${MYSQL_PASSWORD:-todopassword}@db:3306/${MYSQL_DATABASE:-todoapp}
+    depends_on:
+      db:
+        condition: service_healthy
+    # Not exposed to host — all traffic goes through Nginx
+    expose:
+      - "8000"
+    networks:
+      - taskflow_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── React Frontend (Nginx) ────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: taskflow_frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - taskflow_net
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  taskflow_net:
+    driver: bridge
