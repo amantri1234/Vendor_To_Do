@@ -5,11 +5,13 @@ from app.models.models import Task, TaskStatus
 from app.schemas.schemas import TaskCreate, TaskUpdate
 
 
-def get_tasks(db: Session, owner_id: int) -> List[Task]:
+def get_tasks(db: Session, owner_id: int, skip: int = 0, limit: int = 50) -> List[Task]:
     return (
         db.query(Task)
         .filter(Task.owner_id == owner_id)
         .order_by(Task.created_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
 

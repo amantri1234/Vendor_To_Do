@@ -1,22 +1,26 @@
 import { useState, useMemo } from 'react'
 import { useTasks } from '../hooks/useTasks'
 import { useDebounce } from '../hooks/useDebounce'
+import { tasksAPI } from '../services/api'
 import TaskCard from '../components/TaskCard'
 import TaskModal from '../components/TaskModal'
 import toast from 'react-hot-toast'
 
 const FILTERS = ['all', 'pending', 'in-progress', 'completed']
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 }
+const PAGE_SIZE = 10
 
 export default function Dashboard() {
-  const { tasks, loading, createTask, updateTask, deleteTask, completeTask } = useTasks()
+  const { tasks, loading, createTask, updateTask, deleteTask, completeTask, refresh } = useTasks()
   const [modalOpen, setModalOpen]   = useState(false)
   const [editTarget, setEditTarget] = useState(null)
   const [filter, setFilter]         = useState('all')
   const [search, setSearch]         = useState('')
   const [sortBy, setSortBy]         = useState('created')
+  const [page, setPage]             = useState(1)
+  const [deletingDone, setDeletingDone] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
-  // Debounce search so we don't re-filter on every keystroke
   const debouncedSearch = useDebounce(search, 250)
 
   const filtered = useMemo(() => {
@@ -39,6 +43,12 @@ export default function Dashboard() {
     progress:  tasks.filter((t) => t.status === 'in-progress').length,
     done:      tasks.filter((t) => t.is_completed).length,
   }), [tasks])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  // Reset to page 1 when filters change
+  const onFilterChange = (f) => { setFilter(f); setPage(1) }
 
   const openCreate = () => { setEditTarget(null); setModalOpen(true) }
   const openEdit   = (task) => { setEditTarget(task); setModalOpen(true) }
@@ -63,6 +73,20 @@ export default function Dashboard() {
     catch { toast.error('Failed to complete task') }
   }
 
+  const handleDeleteCompleted = async () => {
+    setDeletingDone(true)
+    try {
+      await tasksAPI.deleteCompleted()
+      toast.success('All completed tasks deleted')
+      refresh()
+      setShowDeleteConfirm(false)
+    } catch {
+      toast.error('Failed to delete completed tasks')
+    } finally {
+      setDeletingDone(false)
+    }
+  }
+
   return (
     <div className="p-8 max-w-4xl mx-auto">
       {/* Header */}
@@ -73,12 +97,34 @@ export default function Dashboard() {
             {stats.total === 0 ? 'No tasks yet — create your first one!' : `${stats.done} of ${stats.total} completed`}
           </p>
         </div>
-        <button onClick={openCreate} className="btn-primary">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Task
-        </button>
+        <div className="flex items-center gap-2">
+          {stats.done > 0 && (
+            showDeleteConfirm ? (
+              <div className="flex items-center gap-2 bg-red-50 rounded-lg p-1">
+                <button
+                  onClick={handleDeleteCompleted}
+                  disabled={deletingDone}
+                  className="btn-danger btn-sm"
+                >{deletingDone ? 'Deleting…' : 'Confirm'}</button>
+                <button onClick={() => setShowDeleteConfirm(false)} className="btn-ghost btn-sm">Cancel</button>
+              </div>
+            ) : (
+              <button onClick={() => setShowDeleteConfirm(true)} className="btn-ghost btn-sm text-red-600 hover:bg-red-50">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Clear Completed
+              </button>
+            )
+          )}
+          <button onClick={openCreate} className="btn-primary">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            New Task
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -100,7 +146,7 @@ export default function Dashboard() {
       <div className="flex flex-wrap items-center gap-3 mb-5">
         <div className="flex gap-1 bg-paper-soft rounded-xl p-1">
           {FILTERS.map((f) => (
-            <button key={f} onClick={() => setFilter(f)}
+            <button key={f} onClick={() => onFilterChange(f)}
               className={`px-3 py-1.5 rounded-lg text-xs font-display font-600 capitalize transition-all
                 ${filter === f ? 'bg-white text-ink shadow-sm' : 'text-ink/40 hover:text-ink'}`}>
               {f}
@@ -147,12 +193,46 @@ export default function Dashboard() {
           )}
         </div>
       ) : (
-        <div className="space-y-2">
-          {filtered.map((task) => (
-            <TaskCard key={task.id} task={task}
-              onEdit={openEdit} onDelete={handleDelete} onComplete={handleComplete} />
-          ))}
-        </div>
+        <>
+          <div className="space-y-2">
+            {paged.map((task) => (
+              <TaskCard key={task.id} task={task}
+                onEdit={openEdit} onDelete={handleDelete} onComplete={handleComplete} />
+            ))}
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-6">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="btn-ghost btn-sm"
+              >
+                Previous
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  className={`btn-sm rounded-lg font-display font-600 text-xs min-w-[32px]
+                    ${page === p
+                      ? 'bg-accent text-white'
+                      : 'btn-ghost'}`}
+                >
+                  {p}
+                </button>
+              ))}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="btn-ghost btn-sm"
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       <TaskModal open={modalOpen} onClose={() => setModalOpen(false)}

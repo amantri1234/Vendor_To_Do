@@ -4,6 +4,9 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Templates from './pages/Templates'
+import Profile from './pages/Profile'
+import Stats from './pages/Stats'
+import About from './pages/About'
 import Layout from './components/Layout'
 
 function PrivateRoute({ children }) {
@@ -36,6 +39,18 @@ export default function App() {
         <Route
           path="/templates"
           element={<PrivateRoute><Layout><Templates /></Layout></PrivateRoute>}
+        />
+        <Route
+          path="/profile"
+          element={<PrivateRoute><Layout><Profile /></Layout></PrivateRoute>}
+        />
+        <Route
+          path="/stats"
+          element={<PrivateRoute><Layout><Stats /></Layout></PrivateRoute>}
+        />
+        <Route
+          path="/about"
+          element={<PrivateRoute><Layout><About /></Layout></PrivateRoute>}
         />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

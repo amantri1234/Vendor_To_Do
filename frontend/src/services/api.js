@@ -40,11 +40,14 @@ export const authAPI = {
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 export const tasksAPI = {
-  list:     ()         => api.get('/tasks'),
-  create:   (data)     => api.post('/tasks', data),
-  update:   (id, data) => api.put(`/tasks/${id}`, data),
-  delete:   (id)       => api.delete(`/tasks/${id}`),
-  complete: (id)       => api.patch(`/tasks/${id}/complete`),
+  list:            ()         => api.get('/tasks'),
+  create:          (data)     => api.post('/tasks', data),
+  update:          (id, data) => api.put(`/tasks/${id}`, data),
+  delete:          (id)       => api.delete(`/tasks/${id}`),
+  complete:        (id)       => api.patch(`/tasks/${id}/complete`),
+  stats:           ()         => api.get('/tasks/stats'),
+  bulkDelete:      (ids)      => api.post('/tasks/bulk-delete', ids),
+  deleteCompleted: ()         => api.delete('/tasks/completed'),
 }
 
 // ── Templates ─────────────────────────────────────────────────────────────────
@@ -53,6 +56,12 @@ export const templatesAPI = {
   create:     (data) => api.post('/templates', data),
   delete:     (id)   => api.delete(`/templates/${id}`),
   applyTasks: (id)   => api.post(`/templates/${id}/create-tasks`),
+}
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+export const usersAPI = {
+  getProfile: ()       => api.get('/users/me'),
+  updateProfile: (data) => api.put('/users/me', data),
 }
 
 export default api
