@@ -3,6 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 from app.database import init_db, close_db
 from app.routers import auth_router, tasks_router, templates_router, users_router
 from app.config import settings
@@ -49,6 +50,18 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 # ── Security & Log Sanitization Middleware ────────────────────────────────────────
 app.add_middleware(LogSanitizationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
+
+# ── Request Body Size Limit (1MB) ──────────────────────────────────────────────────
+class LimitUploadSizeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method in ("POST", "PUT", "PATCH"):
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > 1_000_000:
+                return JSONResponse(status_code=413, content={"detail": "Request too large"})
+        return await call_next(request)
+
+
+app.add_middleware(LimitUploadSizeMiddleware)
 
 # ── CORS ───────────────────────────────────────────────────────────────────────────
 app.add_middleware(

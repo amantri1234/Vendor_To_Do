@@ -69,7 +69,7 @@ async def update_profile(
 
 
 @router.put("/change-password", status_code=status.HTTP_200_OK)
-@limiter.limit("3/minute")
+@limiter.limit("1/minute")
 async def change_password(
     request: Request,
     data: ChangePassword,
