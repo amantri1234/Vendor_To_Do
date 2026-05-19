@@ -71,6 +71,8 @@ async def bulk_delete_tasks(
     task_ids: List[str],
     current_user: User = Depends(get_current_user),
 ):
+    if len(task_ids) > 100:
+        raise HTTPException(status_code=400, detail="Cannot delete more than 100 tasks at once")
     obj_ids = []
     for tid in task_ids:
         try:

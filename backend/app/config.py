@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     MONGODB_DB_NAME: str = "taskflow"
 
     # Auth
-    SECRET_KEY: str = "changeme-super-secret-key-at-least-32-characters"
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
@@ -27,14 +27,13 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_parse_none_str = "None"
 
-    # Called once at app startup to warn about insecure defaults
-    def check_security(self):
-        if self.SECRET_KEY == "changeme-super-secret-key-at-least-32-characters":
-            import logging
-            logging.warning(
-                "⚠ SECURITY: SECRET_KEY is set to the default value. "
-                "Generate a random 32+ char key and set it in .env for production."
-            )
+    def log_config(self):
+        import logging
+        logger = logging.getLogger("taskflow")
+        host = self.MONGODB_URL.split("@")[-1] if "@" in self.MONGODB_URL else self.MONGODB_URL
+        logger.info(f"MongoDB host: {host}")
+        logger.info(f"MongoDB database: {self.MONGODB_DB_NAME}")
+        logger.info(f"DEBUG mode: {self.DEBUG}")
 
 
 @lru_cache()

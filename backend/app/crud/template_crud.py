@@ -1,5 +1,6 @@
 from typing import Optional, List
 from bson import ObjectId
+from bson.errors import InvalidId
 from app.models.models import Template, TemplateTaskEmbedded, Task
 from app.schemas.schemas import TemplateCreate
 
@@ -13,8 +14,12 @@ async def get_templates(owner_id: str) -> List[Template]:
 
 
 async def get_template(template_id: str, owner_id: str) -> Optional[Template]:
+    try:
+        obj_id = ObjectId(template_id)
+    except InvalidId:
+        return None
     return await Template.find_one(
-        Template.id == ObjectId(template_id),
+        Template.id == obj_id,
         Template.owner_id == owner_id,
     )
 

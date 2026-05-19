@@ -1,5 +1,6 @@
 from typing import Optional, List
 from bson import ObjectId
+from bson.errors import InvalidId
 from app.models.models import Task, TaskStatus
 from app.schemas.schemas import TaskCreate, TaskUpdate
 from datetime import datetime, timezone
@@ -16,8 +17,12 @@ async def get_tasks(owner_id: str, skip: int = 0, limit: int = 50) -> List[Task]
 
 
 async def get_task(task_id: str, owner_id: str) -> Optional[Task]:
+    try:
+        obj_id = ObjectId(task_id)
+    except InvalidId:
+        return None
     return await Task.find_one(
-        Task.id == ObjectId(task_id),
+        Task.id == obj_id,
         Task.owner_id == owner_id,
     )
 
