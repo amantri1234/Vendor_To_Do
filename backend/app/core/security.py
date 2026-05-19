@@ -4,9 +4,10 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
 from app.config import settings
-from app.database import get_db
+from app.models.models import User
+from bson import ObjectId
+import uuid
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -25,7 +26,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "jti": str(uuid.uuid4())})
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
@@ -37,12 +38,9 @@ def decode_access_token(token: str) -> Optional[dict]:
         return None
 
 
-def get_current_user(
+async def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db),
 ):
-    from app.crud.user_crud import get_user_by_id
-
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -57,11 +55,10 @@ def get_current_user(
         raise credentials_exception
 
     try:
-        uid = int(user_id)
-    except (TypeError, ValueError):
+        user = await User.get(ObjectId(user_id))
+    except Exception:
         raise credentials_exception
 
-    user = get_user_by_id(db, uid)
     if user is None or not user.is_active:
         raise credentials_exception
     return user

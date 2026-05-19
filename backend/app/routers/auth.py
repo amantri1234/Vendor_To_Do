@@ -1,42 +1,88 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from app.database import get_db
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from app.schemas.schemas import UserCreate, UserLogin, Token, UserOut
 from app.crud.user_crud import get_user_by_email, get_user_by_username, create_user
 from app.core.security import verify_password, create_access_token
+from app.core.rate_limit import limiter
+from app.models.models import FailedLoginAttempt
+from datetime import datetime, timedelta, timezone
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+MAX_FAILED_ATTEMPTS = 10
+LOCKOUT_MINUTES = 15
+
+
+def _is_locked(record):
+    if not record or not record.locked_until:
+        return False
+    locked = record.locked_until
+    now = datetime.now(timezone.utc)
+    if locked.tzinfo is None:
+        locked = locked.replace(tzinfo=timezone.utc)
+    return locked > now
+
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
-def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    if get_user_by_email(db, user_data.email):
+@limiter.limit("3/minute")
+async def register(request: Request, user_data: UserCreate):
+    existing_email = await get_user_by_email(user_data.email)
+    if existing_email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
+            detail="Registration failed. Please check your details and try again.",
         )
-    if get_user_by_username(db, user_data.username):
+    existing_username = await get_user_by_username(user_data.username)
+    if existing_username:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already taken",
+            detail="Registration failed. Please check your details and try again.",
         )
-    user = create_user(db, user_data)
+    user = await create_user(user_data)
     token = create_access_token({"sub": str(user.id)})
-    return Token(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
+    return Token(access_token=token, token_type="bearer", user=UserOut.model_validate(user.model_dump()))
 
 
 @router.post("/login", response_model=Token)
-def login(credentials: UserLogin, db: Session = Depends(get_db)):
-    user = get_user_by_email(db, credentials.email)
+@limiter.limit("5/minute")
+async def login(request: Request, credentials: UserLogin):
+    record = await FailedLoginAttempt.find_one(FailedLoginAttempt.email == credentials.email.lower())
+    if _is_locked(record):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Account is temporarily locked due to too many failed attempts. Try again later.",
+        )
+
+    user = await get_user_by_email(credentials.email)
+
     if not user or not verify_password(credentials.password, user.hashed_password):
+        await _record_failed_attempt(credentials.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
+
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated",
         )
+
+    await _clear_failed_attempts(credentials.email)
     token = create_access_token({"sub": str(user.id)})
-    return Token(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
+    return Token(access_token=token, token_type="bearer", user=UserOut.model_validate(user.model_dump()))
+
+
+async def _record_failed_attempt(email: str):
+    record = await FailedLoginAttempt.find_one(FailedLoginAttempt.email == email.lower())
+    now = datetime.now(timezone.utc)
+    if record:
+        record.attempt_count += 1
+        if record.attempt_count >= MAX_FAILED_ATTEMPTS:
+            record.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
+        await record.save()
+    else:
+        await FailedLoginAttempt(email=email.lower(), locked_until=None).insert()
+
+
+async def _clear_failed_attempts(email: str):
+    await FailedLoginAttempt.find(FailedLoginAttempt.email == email.lower()).delete()

@@ -1,11 +1,9 @@
-from sqlalchemy import (
-    Column, Integer, String, Boolean, DateTime, Text,
-    ForeignKey, Enum as SAEnum, Index
-)
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from beanie import Document, Indexed
+from pydantic import BaseModel, Field
+from typing import Optional, List
+from datetime import datetime, timezone
+from bson import ObjectId
 import enum
-from app.database import Base
 
 
 class TaskStatus(str, enum.Enum):
@@ -20,74 +18,63 @@ class TaskPriority(str, enum.Enum):
     high = "high"
 
 
-class User(Base):
-    __tablename__ = "users"
+class User(Document):
+    email: Indexed(str, unique=True)
+    username: Indexed(str, unique=True)
+    hashed_password: str
+    is_active: bool = True
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String(255), unique=True, index=True, nullable=False)
-    username = Column(String(100), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    tasks = relationship("Task", back_populates="owner", cascade="all, delete-orphan", lazy="select")
-    templates = relationship("Template", back_populates="owner", cascade="all, delete-orphan", lazy="select")
+    class Settings:
+        name = "users"
 
 
-class Task(Base):
-    __tablename__ = "tasks"
-
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    status = Column(SAEnum(TaskStatus), default=TaskStatus.pending, nullable=False)
-    priority = Column(SAEnum(TaskPriority), default=TaskPriority.medium, nullable=False)
-    due_date = Column(DateTime(timezone=True), nullable=True)
-    is_completed = Column(Boolean, default=False, nullable=False)
-    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
-
-    owner = relationship("User", back_populates="tasks")
-
-    # Composite indexes for the most common filtered queries
-    __table_args__ = (
-        Index("ix_tasks_owner_status",   "owner_id", "status"),
-        Index("ix_tasks_owner_priority", "owner_id", "priority"),
-        Index("ix_tasks_owner_due",      "owner_id", "due_date"),
-    )
+class TemplateTaskEmbedded(BaseModel):
+    id: str = Field(default_factory=lambda: str(ObjectId()))
+    title: str
+    description: Optional[str] = None
+    priority: TaskPriority = TaskPriority.medium
+    order: int = 0
 
 
-class Template(Base):
-    __tablename__ = "templates"
+class Task(Document):
+    title: str
+    description: Optional[str] = None
+    status: TaskStatus = TaskStatus.pending
+    priority: TaskPriority = TaskPriority.medium
+    due_date: Optional[datetime] = None
+    is_completed: bool = False
+    owner_id: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: Optional[datetime] = None
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-
-    owner = relationship("User", back_populates="templates")
-    template_tasks = relationship(
-        "TemplateTask", back_populates="template",
-        cascade="all, delete-orphan",
-        order_by="TemplateTask.order",   # always returned in order
-        lazy="select",
-    )
-
-    __table_args__ = (
-        Index("ix_templates_owner_id", "owner_id"),
-    )
+    class Settings:
+        name = "tasks"
+        indexes = [
+            [("owner_id", 1), ("status", 1)],
+            [("owner_id", 1), ("priority", 1)],
+            [("owner_id", 1), ("due_date", 1)],
+            [("created_at", -1)],
+        ]
 
 
-class TemplateTask(Base):
-    __tablename__ = "template_tasks"
+class Template(Document):
+    name: str
+    description: Optional[str] = None
+    owner_id: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    tasks: List[TemplateTaskEmbedded] = []
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    priority = Column(SAEnum(TaskPriority), default=TaskPriority.medium, nullable=False)
-    order = Column(Integer, default=0, nullable=False)
-    template_id = Column(Integer, ForeignKey("templates.id", ondelete="CASCADE"), nullable=False)
+    class Settings:
+        name = "templates"
+        indexes = ["owner_id"]
 
-    template = relationship("Template", back_populates="template_tasks")
+
+class FailedLoginAttempt(Document):
+    email: Indexed(str)
+    attempt_count: int = 1
+    first_attempt_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    locked_until: Optional[datetime] = None
+
+    class Settings:
+        name = "failed_login_attempts"

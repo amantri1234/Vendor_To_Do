@@ -1,43 +1,35 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from sqlalchemy.pool import QueuePool, NullPool
+from motor.motor_asyncio import AsyncIOMotorClient
+from beanie import init_beanie
 from app.config import settings
 
-_is_sqlite = settings.DATABASE_URL.startswith("sqlite")
-_engine_kwargs = dict(
-    echo=settings.DEBUG,
-    connect_args={"check_same_thread": False} if _is_sqlite else {},
-)
-if _is_sqlite:
-    _engine_kwargs["poolclass"] = NullPool
-else:
-    _engine_kwargs["poolclass"] = QueuePool
-    _engine_kwargs.update(
-        pool_pre_ping=True,
-        pool_size=10,
-        max_overflow=20,
-        pool_recycle=1800,
-        pool_timeout=30,
+client: AsyncIOMotorClient | None = None
+
+
+async def init_db():
+    global client
+    client = AsyncIOMotorClient(
+        settings.MONGODB_URL,
+        maxPoolSize=50,
+        minPoolSize=5,
+        serverSelectionTimeoutMS=5000,
+        connectTimeoutMS=5000,
+    )
+    # Verify connection
+    try:
+        await client.admin.command("ping")
+    except Exception:
+        raise ConnectionError("Could not connect to MongoDB")
+
+    from app.models.models import User, Task, Template, FailedLoginAttempt
+
+    await init_beanie(
+        database=client[settings.MONGODB_DB_NAME],
+        document_models=[User, Task, Template, FailedLoginAttempt],
     )
 
-engine = create_engine(settings.DATABASE_URL, **_engine_kwargs)
 
-
-class Base(DeclarativeBase):
-    pass
-
-
-SessionLocal = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
-    expire_on_commit=False,   # avoid extra SELECT after commit
-)
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def close_db():
+    global client
+    if client:
+        client.close()
+        client = None

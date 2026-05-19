@@ -1,72 +1,61 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import update as sql_update
-from typing import List, Optional
+from typing import Optional, List
+from bson import ObjectId
 from app.models.models import Task, TaskStatus
 from app.schemas.schemas import TaskCreate, TaskUpdate
+from datetime import datetime, timezone
 
 
-def get_tasks(db: Session, owner_id: int, skip: int = 0, limit: int = 50) -> List[Task]:
+async def get_tasks(owner_id: str, skip: int = 0, limit: int = 50) -> List[Task]:
     return (
-        db.query(Task)
-        .filter(Task.owner_id == owner_id)
-        .order_by(Task.created_at.desc())
-        .offset(skip)
+        await Task.find(Task.owner_id == owner_id)
+        .sort(-Task.created_at)
+        .skip(skip)
         .limit(limit)
-        .all()
+        .to_list()
     )
 
 
-def get_task(db: Session, task_id: int, owner_id: int) -> Optional[Task]:
-    return (
-        db.query(Task)
-        .filter(Task.id == task_id, Task.owner_id == owner_id)
-        .first()
+async def get_task(task_id: str, owner_id: str) -> Optional[Task]:
+    return await Task.find_one(
+        Task.id == ObjectId(task_id),
+        Task.owner_id == owner_id,
     )
 
 
-def create_task(db: Session, task_data: TaskCreate, owner_id: int) -> Task:
-    db_task = Task(**task_data.model_dump(), owner_id=owner_id)
-    db.add(db_task)
-    db.commit()
-    return db_task   # expire_on_commit=False means no extra SELECT needed
+async def create_task(task_data: TaskCreate, owner_id: str) -> Task:
+    task = Task(**task_data.model_dump(), owner_id=owner_id)
+    await task.insert()
+    return task
 
 
-def update_task(db: Session, task_id: int, task_data: TaskUpdate, owner_id: int) -> Optional[Task]:
-    update_values = task_data.model_dump(exclude_unset=True)
+async def update_task(task_id: str, task_data: TaskUpdate, owner_id: str) -> Optional[Task]:
+    task = await get_task(task_id, owner_id)
+    if not task:
+        return None
+    update_values = task_data.model_dump(exclude_unset=True, exclude_none=True)
     if not update_values:
-        return get_task(db, task_id, owner_id)
+        return task
+    for key, value in update_values.items():
+        setattr(task, key, value)
+    task.updated_at = datetime.now(timezone.utc)
+    await task.save()
+    return task
 
-    result = (
-        db.query(Task)
-        .filter(Task.id == task_id, Task.owner_id == owner_id)
-        .update(update_values, synchronize_session="fetch")
-    )
-    if result == 0:
+
+async def delete_task(task_id: str, owner_id: str) -> bool:
+    task = await get_task(task_id, owner_id)
+    if not task:
+        return False
+    await task.delete()
+    return True
+
+
+async def complete_task(task_id: str, owner_id: str) -> Optional[Task]:
+    task = await get_task(task_id, owner_id)
+    if not task:
         return None
-    db.commit()
-    return get_task(db, task_id, owner_id)
-
-
-def delete_task(db: Session, task_id: int, owner_id: int) -> bool:
-    deleted = (
-        db.query(Task)
-        .filter(Task.id == task_id, Task.owner_id == owner_id)
-        .delete(synchronize_session="fetch")
-    )
-    db.commit()
-    return deleted > 0
-
-
-def complete_task(db: Session, task_id: int, owner_id: int) -> Optional[Task]:
-    result = (
-        db.query(Task)
-        .filter(Task.id == task_id, Task.owner_id == owner_id)
-        .update(
-            {"is_completed": True, "status": TaskStatus.completed},
-            synchronize_session="fetch",
-        )
-    )
-    if result == 0:
-        return None
-    db.commit()
-    return get_task(db, task_id, owner_id)
+    task.is_completed = True
+    task.status = TaskStatus.completed
+    task.updated_at = datetime.now(timezone.utc)
+    await task.save()
+    return task

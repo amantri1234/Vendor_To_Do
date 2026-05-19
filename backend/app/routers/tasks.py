@@ -1,128 +1,155 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func
-from typing import List, Optional
-from app.database import get_db
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from typing import List
 from app.core.security import get_current_user
+from app.core.rate_limit import limiter
 from app.models.models import User, Task, TaskStatus
-from app.schemas.schemas import TaskCreate, TaskUpdate, TaskOut
+from app.schemas.schemas import TaskCreate, TaskUpdate, TaskOut, TaskStats
 from app.crud import task_crud
-from pydantic import BaseModel
+from bson import ObjectId
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
 
-class TaskStats(BaseModel):
-    total: int
-    pending: int
-    in_progress: int
-    completed: int
-    high_priority: int
-    medium_priority: int
-    low_priority: int
-    overdue: int
+def _to_out(task: Task) -> TaskOut:
+    return TaskOut.model_validate(task.model_dump())
 
 
 @router.get("/stats", response_model=TaskStats)
-def task_stats(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    from datetime import datetime, timezone
-    base = db.query(Task).filter(Task.owner_id == current_user.id)
+async def task_stats(current_user: User = Depends(get_current_user)):
+    from app.models.models import Task
+    import re
+
+    now = datetime.now(timezone.utc)
+
+    pipeline = [
+        {"$match": {"owner_id": str(current_user.id)}},
+        {
+            "$group": {
+                "_id": None,
+                "total": {"$sum": 1},
+                "pending": {"$sum": {"$cond": [{"$eq": ["$status", TaskStatus.pending.value]}, 1, 0]}},
+                "in_progress": {"$sum": {"$cond": [{"$eq": ["$status", TaskStatus.in_progress.value]}, 1, 0]}},
+                "completed": {"$sum": {"$cond": [{"$eq": ["$is_completed", True]}, 1, 0]}},
+                "high_priority": {"$sum": {"$cond": [{"$eq": ["$priority", "high"]}, 1, 0]}},
+                "medium_priority": {"$sum": {"$cond": [{"$eq": ["$priority", "medium"]}, 1, 0]}},
+                "low_priority": {"$sum": {"$cond": [{"$eq": ["$priority", "low"]}, 1, 0]}},
+                "overdue": {
+                    "$sum": {
+                        "$cond": [
+                            {"$and": [
+                                {"$lt": ["$due_date", now]},
+                                {"$eq": ["$is_completed", False]},
+                            ]},
+                            1, 0,
+                        ]
+                    }
+                },
+            }
+        },
+    ]
+
+    results = await Task.get_motor_collection().aggregate(pipeline).to_list(None)
+    if not results:
+        return TaskStats()
+    r = results[0]
     return TaskStats(
-        total=base.count(),
-        pending=base.filter(Task.status == TaskStatus.pending).count(),
-        in_progress=base.filter(Task.status == TaskStatus.in_progress).count(),
-        completed=base.filter(Task.is_completed == True).count(),
-        high_priority=base.filter(Task.priority == "high").count(),
-        medium_priority=base.filter(Task.priority == "medium").count(),
-        low_priority=base.filter(Task.priority == "low").count(),
-        overdue=base.filter(
-            Task.due_date < datetime.now(timezone.utc),
-            Task.is_completed == False
-        ).count(),
+        total=r.get("total", 0),
+        pending=r.get("pending", 0),
+        in_progress=r.get("in_progress", 0),
+        completed=r.get("completed", 0),
+        high_priority=r.get("high_priority", 0),
+        medium_priority=r.get("medium_priority", 0),
+        low_priority=r.get("low_priority", 0),
+        overdue=r.get("overdue", 0),
     )
 
 
 @router.post("/bulk-delete", status_code=status.HTTP_204_NO_CONTENT)
-def bulk_delete_tasks(
-    task_ids: List[int],
-    db: Session = Depends(get_db),
+@limiter.limit("30/minute")
+async def bulk_delete_tasks(
+    request: Request,
+    task_ids: List[str],
     current_user: User = Depends(get_current_user),
 ):
-    deleted = (
-        db.query(Task)
-        .filter(Task.id.in_(task_ids), Task.owner_id == current_user.id)
-        .delete(synchronize_session="fetch")
-    )
-    db.commit()
-    if deleted == 0:
+    obj_ids = []
+    for tid in task_ids:
+        try:
+            obj_ids.append(ObjectId(tid))
+        except Exception:
+            raise HTTPException(status_code=400, detail=f"Invalid task ID: {tid}")
+
+    result = await Task.get_motor_collection().delete_many({
+        "_id": {"$in": obj_ids},
+        "owner_id": str(current_user.id),
+    })
+    if result.deleted_count == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No tasks found")
 
 
 @router.delete("/completed", status_code=status.HTTP_204_NO_CONTENT)
-def delete_completed_tasks(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    db.query(Task).filter(
-        Task.owner_id == current_user.id,
-        Task.is_completed == True
-    ).delete(synchronize_session="fetch")
-    db.commit()
+async def delete_completed_tasks(current_user: User = Depends(get_current_user)):
+    await Task.get_motor_collection().delete_many({
+        "owner_id": str(current_user.id),
+        "is_completed": True,
+    })
 
 
 @router.get("", response_model=List[TaskOut])
-def list_tasks(
+async def list_tasks(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return task_crud.get_tasks(db, current_user.id, skip=skip, limit=limit)
+    tasks = await task_crud.get_tasks(str(current_user.id), skip=skip, limit=limit)
+    return [_to_out(t) for t in tasks]
 
 
 @router.post("", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
-def create_task(
+@limiter.limit("60/minute")
+async def create_task(
+    request: Request,
     task_data: TaskCreate,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return task_crud.create_task(db, task_data, current_user.id)
+    task = await task_crud.create_task(task_data, str(current_user.id))
+    return _to_out(task)
 
 
 @router.put("/{task_id}", response_model=TaskOut)
-def update_task(
-    task_id: int,
+@limiter.limit("60/minute")
+async def update_task(
+    request: Request,
+    task_id: str,
     task_data: TaskUpdate,
-    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task = task_crud.update_task(db, task_id, task_data, current_user.id)
+    task = await task_crud.update_task(task_id, task_data, str(current_user.id))
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    return task
+    return _to_out(task)
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_task(
-    task_id: int,
-    db: Session = Depends(get_db),
+@limiter.limit("30/minute")
+async def delete_task(
+    request: Request,
+    task_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    deleted = task_crud.delete_task(db, task_id, current_user.id)
+    deleted = await task_crud.delete_task(task_id, str(current_user.id))
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
 
 @router.patch("/{task_id}/complete", response_model=TaskOut)
-def complete_task(
-    task_id: int,
-    db: Session = Depends(get_db),
+@limiter.limit("60/minute")
+async def complete_task(
+    request: Request,
+    task_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    task = task_crud.complete_task(db, task_id, current_user.id)
+    task = await task_crud.complete_task(task_id, str(current_user.id))
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    return task
+    return _to_out(task)

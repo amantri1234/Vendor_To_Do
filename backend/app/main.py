@@ -1,34 +1,55 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+from app.database import init_db, close_db
 from app.routers import auth_router, tasks_router, templates_router, users_router
 from app.config import settings
+from app.core.rate_limit import limiter
+from app.core.middleware import SecurityHeadersMiddleware, LogSanitizationMiddleware
+import logging
 
-# Import models so Alembic/SQLAlchemy can discover them
-import app.models.models  # noqa: F401
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("taskflow")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables (dev only — use Alembic in production)
-    Base.metadata.create_all(bind=engine)
+    await init_db()
+    logger.info("MongoDB connected successfully")
     yield
-    # Shutdown: dispose connection pool cleanly
-    engine.dispose()
+    await close_db()
+    logger.info("MongoDB connection closed")
 
 
 app = FastAPI(
     title="TaskFlow API",
-    description="A scalable multi-user To-Do List API with templates",
-    version="1.0.0",
-    # Disable interactive docs in production for security
+    description="A scalable multi-user To-Do List API with MongoDB",
+    version="2.0.0",
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
     lifespan=lifespan,
 )
 
-# ── CORS ──────────────────────────────────────────────────────────────────────
+# ── Rate Limiter ──────────────────────────────────────────────────────────────────
+app.state.limiter = limiter
+
+
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests. Please slow down."},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
+# ── Security & Log Sanitization Middleware ────────────────────────────────────────
+app.add_middleware(LogSanitizationMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
+# ── CORS ───────────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -37,13 +58,22 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-# ── Routers ───────────────────────────────────────────────────────────────────
+# ── Routers ────────────────────────────────────────────────────────────────────────
 app.include_router(auth_router)
 app.include_router(tasks_router)
 app.include_router(templates_router)
 app.include_router(users_router)
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"Unhandled exception on {request.method} {request.url.path}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
+
 @app.get("/", tags=["Health"])
-def health_check():
-    return {"status": "ok", "message": "TaskFlow API is running"}
+async def health_check():
+    return {"status": "ok", "message": "TaskFlow API is running", "version": "2.0.0"}

@@ -1,88 +1,61 @@
-from sqlalchemy.orm import Session, joinedload
-from typing import List, Optional
-from app.models.models import Template, TemplateTask, Task
+from typing import Optional, List
+from bson import ObjectId
+from app.models.models import Template, TemplateTaskEmbedded, Task
 from app.schemas.schemas import TemplateCreate
 
 
-def get_templates(db: Session, owner_id: int) -> List[Template]:
-    # joinedload avoids N+1: fetches template_tasks in a single JOIN query
+async def get_templates(owner_id: str) -> List[Template]:
     return (
-        db.query(Template)
-        .options(joinedload(Template.template_tasks))
-        .filter(Template.owner_id == owner_id)
-        .order_by(Template.created_at.desc())
-        .all()
+        await Template.find(Template.owner_id == owner_id)
+        .sort(-Template.created_at)
+        .to_list()
     )
 
 
-def get_template(db: Session, template_id: int, owner_id: int) -> Optional[Template]:
-    return (
-        db.query(Template)
-        .options(joinedload(Template.template_tasks))
-        .filter(Template.id == template_id, Template.owner_id == owner_id)
-        .first()
+async def get_template(template_id: str, owner_id: str) -> Optional[Template]:
+    return await Template.find_one(
+        Template.id == ObjectId(template_id),
+        Template.owner_id == owner_id,
     )
 
 
-def create_template(db: Session, template_data: TemplateCreate, owner_id: int) -> Template:
-    db_template = Template(
+async def create_template(template_data: TemplateCreate, owner_id: str) -> Template:
+    template_tasks = [
+        TemplateTaskEmbedded(**t.model_dump())
+        for t in template_data.tasks
+    ]
+    template = Template(
         name=template_data.name,
         description=template_data.description,
         owner_id=owner_id,
+        tasks=template_tasks,
     )
-    db.add(db_template)
-    db.flush()  # get id before inserting child rows
-
-    if template_data.tasks:
-        db.bulk_insert_mappings(
-            TemplateTask,
-            [
-                {**t.model_dump(), "template_id": db_template.id}
-                for t in template_data.tasks
-            ],
-        )
-
-    db.commit()
-    # Re-fetch with joined tasks to return complete object
-    return get_template(db, db_template.id, owner_id)
+    await template.insert()
+    return template
 
 
-def delete_template(db: Session, template_id: int, owner_id: int) -> bool:
-    deleted = (
-        db.query(Template)
-        .filter(Template.id == template_id, Template.owner_id == owner_id)
-        .delete(synchronize_session="fetch")
-    )
-    db.commit()
-    return deleted > 0
-
-
-def create_tasks_from_template(db: Session, template_id: int, owner_id: int) -> Optional[List[Task]]:
-    template = get_template(db, template_id, owner_id)
+async def delete_template(template_id: str, owner_id: str) -> bool:
+    template = await get_template(template_id, owner_id)
     if not template:
-        return None   # caller raises 404
+        return False
+    await template.delete()
+    return True
 
-    if not template.template_tasks:
+
+async def create_tasks_from_template(template_id: str, owner_id: str) -> Optional[List[Task]]:
+    template = await get_template(template_id, owner_id)
+    if not template:
+        return None
+    if not template.tasks:
         return []
-
-    # Bulk insert all tasks in one round-trip
-    task_mappings = [
-        {
-            "title":       tt.title,
-            "description": tt.description,
-            "priority":    tt.priority,
-            "owner_id":    owner_id,
-        }
-        for tt in template.template_tasks  # already ordered by TemplateTask.order via relationship
-    ]
-    db.bulk_insert_mappings(Task, task_mappings)
-    db.commit()
-
-    # Return the newly created tasks ordered by insertion
-    return (
-        db.query(Task)
-        .filter(Task.owner_id == owner_id)
-        .order_by(Task.id.desc())
-        .limit(len(task_mappings))
-        .all()[::-1]
-    )
+    tasks = []
+    for tt in template.tasks:
+        task = Task(
+            title=tt.title,
+            description=tt.description,
+            priority=tt.priority.value if hasattr(tt.priority, 'value') else tt.priority,
+            owner_id=owner_id,
+        )
+        await task.insert()
+        tasks.append(task)
+    return tasks
