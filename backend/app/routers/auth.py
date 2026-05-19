@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.security import OAuth2PasswordBearer
 from app.schemas.schemas import UserCreate, UserLogin, Token, UserOut
 from app.crud.user_crud import get_user_by_email, get_user_by_username, create_user
-from app.core.security import verify_password, create_access_token
+from app.core.security import verify_password, create_access_token, decode_access_token, get_current_user
 from app.core.rate_limit import limiter
-from app.models.models import FailedLoginAttempt
+from app.models.models import FailedLoginAttempt, TokenBlacklist, User
 from datetime import datetime, timedelta, timezone
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -54,7 +57,13 @@ async def login(request: Request, credentials: UserLogin):
 
     user = await get_user_by_email(credentials.email)
 
-    if not user or not verify_password(credentials.password, user.hashed_password):
+    # Timing-safe check: always verify password, even if user doesn't exist
+    password_valid = verify_password(
+        credentials.password,
+        user.hashed_password if user else "$2b$12$VwS2q28AZ4LenO488.PT9OFPK.9GwEWuTsccgMZYqGxQCHrT6jcDK",
+    )
+
+    if not user or not password_valid:
         await _record_failed_attempt(credentials.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -86,3 +95,17 @@ async def _record_failed_attempt(email: str):
 
 async def _clear_failed_attempts(email: str):
     await FailedLoginAttempt.find(FailedLoginAttempt.email == email.lower()).delete()
+
+
+@router.post("/logout", status_code=status.HTTP_200_OK)
+async def logout(token: str = Depends(oauth2_scheme), current_user: User = Depends(get_current_user)):
+    payload = decode_access_token(token)
+    if payload and payload.get("jti"):
+        expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc) if payload.get("exp") else datetime.now(timezone.utc)
+        existing = await TokenBlacklist.find_one(TokenBlacklist.token_jti == payload["jti"])
+        if not existing:
+            await TokenBlacklist(
+                token_jti=payload["jti"],
+                expires_at=expires_at,
+            ).insert()
+    return {"message": "Logged out successfully"}

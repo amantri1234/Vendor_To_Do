@@ -1,1 +1,1 @@
-from app.models.models import User, Task, Template, TaskStatus, TaskPriority
+from app.models.models import User, Task, Template, TaskStatus, TaskPriority, FailedLoginAttempt, TokenBlacklist

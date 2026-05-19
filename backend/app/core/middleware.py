@@ -1,6 +1,10 @@
+import json
+import logging
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+
+logger = logging.getLogger("taskflow")
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -22,7 +26,22 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+SENSITIVE_FIELDS = {"password", "current_password", "new_password", "token", "access_token"}
+
+
 class LogSanitizationMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
+        body = await request.body()
+        if body and request.method in ("POST", "PUT", "PATCH"):
+            try:
+                data = json.loads(body)
+                redacted = {
+                    k: ("***REDACTED***" if k in SENSITIVE_FIELDS else v)
+                    for k, v in data.items()
+                }
+                logger.info(f"{request.method} {request.url.path} body={json.dumps(redacted)}")
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                logger.info(f"{request.method} {request.url.path} body=<binary or unparseable>")
+
         response = await call_next(request)
         return response

@@ -5,7 +5,7 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from app.config import settings
-from app.models.models import User
+from app.models.models import User, TokenBlacklist
 from bson import ObjectId
 import uuid
 
@@ -49,6 +49,13 @@ async def get_current_user(
     payload = decode_access_token(token)
     if payload is None:
         raise credentials_exception
+
+    # Check if token is blacklisted (logged out)
+    jti = payload.get("jti")
+    if jti:
+        blacklisted = await TokenBlacklist.find_one(TokenBlacklist.token_jti == jti)
+        if blacklisted:
+            raise credentials_exception
 
     user_id = payload.get("sub")
     if user_id is None:

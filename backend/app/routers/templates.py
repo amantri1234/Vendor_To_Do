@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from typing import List
+from typing import Any, List
 from app.core.security import get_current_user
 from app.core.rate_limit import limiter
 from app.models.models import User
@@ -9,13 +9,13 @@ from app.crud import template_crud
 router = APIRouter(prefix="/templates", tags=["Templates"])
 
 
-def _template_to_out(t: any) -> TemplateOut:
+def _template_to_out(t: Any) -> TemplateOut:
     data = t.model_dump()
     data["template_tasks"] = data.pop("tasks", [])
     return TemplateOut.model_validate(data)
 
 
-def _task_to_out(t: any) -> TaskOut:
+def _task_to_out(t: Any) -> TaskOut:
     return TaskOut.model_validate(t.model_dump())
 
 

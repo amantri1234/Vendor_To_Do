@@ -18,6 +18,7 @@ logger = logging.getLogger("taskflow")
 async def lifespan(app: FastAPI):
     await init_db()
     logger.info("MongoDB connected successfully")
+    settings.check_security()
     yield
     await close_db()
     logger.info("MongoDB connection closed")

@@ -78,3 +78,13 @@ class FailedLoginAttempt(Document):
 
     class Settings:
         name = "failed_login_attempts"
+
+
+class TokenBlacklist(Document):
+    token_jti: Indexed(str, unique=True)
+    blacklisted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime
+
+    class Settings:
+        name = "token_blacklist"
+        indexes = ["expires_at"]

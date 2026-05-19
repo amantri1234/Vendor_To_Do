@@ -27,6 +27,15 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_parse_none_str = "None"
 
+    # Called once at app startup to warn about insecure defaults
+    def check_security(self):
+        if self.SECRET_KEY == "changeme-super-secret-key-at-least-32-characters":
+            import logging
+            logging.warning(
+                "⚠ SECURITY: SECRET_KEY is set to the default value. "
+                "Generate a random 32+ char key and set it in .env for production."
+            )
+
 
 @lru_cache()
 def get_settings() -> Settings:

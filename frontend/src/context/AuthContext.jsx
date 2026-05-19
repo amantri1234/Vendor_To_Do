@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { authAPI } from '../services/api'
+import toast from 'react-hot-toast'
 
 const AuthContext = createContext(null)
 
@@ -37,10 +38,16 @@ export function AuthProvider({ children }) {
     return data
   }, [])
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      await authAPI.logout()
+    } catch {
+      // Logout on backend is best-effort; clear locally regardless
+    }
     localStorage.removeItem('token')
     localStorage.removeItem('user')
     setUser(null)
+    toast.success('Signed out')
   }, [])
 
   return (

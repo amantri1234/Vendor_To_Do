@@ -20,11 +20,11 @@ async def init_db():
     except Exception:
         raise ConnectionError("Could not connect to MongoDB")
 
-    from app.models.models import User, Task, Template, FailedLoginAttempt
+    from app.models.models import User, Task, Template, FailedLoginAttempt, TokenBlacklist
 
     await init_beanie(
         database=client[settings.MONGODB_DB_NAME],
-        document_models=[User, Task, Template, FailedLoginAttempt],
+        document_models=[User, Task, Template, FailedLoginAttempt, TokenBlacklist],
     )
 
 

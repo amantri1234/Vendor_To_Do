@@ -25,8 +25,8 @@ vendor_to_do/
 │   │   │   ├── task_crud.py     # pagination via skip/limit
 │   │   │   └── template_crud.py
 │   │   └── core/
-│   │       ├── security.py      # JWT, bcrypt, auth dependency
-│   │       ├── middleware.py    # Security headers + log sanitization
+│   │       ├── security.py      # JWT, bcrypt, auth dependency + token blacklist check
+│   │       ├── middleware.py    # Security headers + log sanitization (password redaction)
 │   │       └── rate_limit.py    # slowapi limiter
 │   └── .env                     # MONGODB_URL, SECRET_KEY, etc.
 ├── frontend/
@@ -81,6 +81,7 @@ docker-compose up --build
 |--------|----------|------|------------|
 | POST | /auth/register | No | 3/min |
 | POST | /auth/login | No | 5/min |
+| POST | /auth/logout | Yes | — |
 
 ### Tasks
 | Method | Endpoint | Auth |
@@ -129,7 +130,10 @@ docker-compose up --build
 6. **Log Sanitization**: Passwords redacted from request logs
 7. **Global Exception Handler**: 500 errors don't leak stack traces
 8. **Password Change Endpoint**: PUT /users/change-password (requires current password)
-9. **Debug Mode**: Defaults to False in production
+9. **Token Blacklist**: POST /auth/logout revokes JWT — blacklisted tokens rejected globally
+10. **Timing Attack Protection**: Login always hashes a dummy password for non-existent users
+11. **SECRET_KEY Warning**: Startup warning if default key detected
+12. **Debug Mode**: Defaults to False in production
 
 ## Design System
 

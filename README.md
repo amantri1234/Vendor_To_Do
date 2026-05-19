@@ -181,6 +181,7 @@ This starts:
 |--------|----------|------|------------|-------------|
 | POST | `/auth/register` | No | 3/min | Register → returns JWT + user |
 | POST | `/auth/login` | No | 5/min | Login → returns JWT + user |
+| POST | `/auth/logout` | Yes | — | Revokes JWT token (blacklisted globally) |
 
 ### Tasks *(JWT required)*
 | Method | Endpoint | Description |
@@ -279,6 +280,18 @@ Slate  (#2D3748 → #4A5568 → #718096) — Body text
 - Configurable via `CORS_ORIGINS` env var (`backend/app/config.py:15`)
 - Only allow specific origins (localhost:3000 by default)
 
+### Token Blacklist / Logout
+- `POST /auth/logout` revokes the JWT by storing its `jti` in a `TokenBlacklist` collection
+- `get_current_user()` checks blacklist on every authenticated request — revoked tokens are rejected globally
+- Cleanup via TTL index on `expires_at` field (`backend/app/models/models.py:90`)
+
+### Timing Attack Protection
+- Login always hashes a dummy password for non-existent users, preventing email enumeration via response timing (`backend/app/routers/auth.py:59-62`)
+
+### SECRET_KEY Warning
+- Startup logs a warning if the default `SECRET_KEY` is detected (`backend/app/config.py:30`)
+- Always set a random 32+ char key in `.env` for production
+
 ### Debug Mode
 - Defaults to `False` in production (`backend/app/config.py:14`)
 - Swagger UI (`/docs`) only visible when `DEBUG=true` — this is **intentional and safe**. The Swagger UI allows developers to test endpoints interactively. In production, set `DEBUG=false` to hide it.
@@ -352,6 +365,15 @@ Slate  (#2D3748 → #4A5568 → #718096) — Body text
 ---
 
 ## Change Log
+
+### v2.0.1 — Security Audit Fixes
+
+- **Token blacklist**: `POST /auth/logout` revokes JWT — blacklisted tokens rejected globally
+- **Timing attack fix**: Login always hashes a dummy password for non-existent users
+- **Log sanitization**: `LogSanitizationMiddleware` now actively redacts passwords from request logs
+- **SECRET_KEY warning**: Startup warning logged if default key detected
+- **Frontend logout**: Calls backend `POST /auth/logout` before clearing local state
+- **Code quality**: Removed unused `import re`, fixed `any` → `Any` type hint
 
 ### v2.0.0 — MongoDB Migration & Security Hardening
 

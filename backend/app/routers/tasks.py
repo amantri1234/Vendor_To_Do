@@ -18,7 +18,6 @@ def _to_out(task: Task) -> TaskOut:
 @router.get("/stats", response_model=TaskStats)
 async def task_stats(current_user: User = Depends(get_current_user)):
     from app.models.models import Task
-    import re
 
     now = datetime.now(timezone.utc)
 
