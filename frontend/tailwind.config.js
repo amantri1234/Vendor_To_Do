@@ -1,38 +1,34 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {
     extend: {
       fontFamily: {
-        display: ['"Syne"', 'sans-serif'],
-        body: ['"DM Sans"', 'sans-serif'],
+        display: ['"Playfair Display"', 'serif'],
+        body: ['"Inter"', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'monospace'],
       },
       colors: {
-        ink: {
-          DEFAULT: '#0D0D0D',
-          soft: '#1A1A1A',
-          muted: '#2E2E2E',
-        },
-        paper: {
-          DEFAULT: '#F5F2EB',
-          soft: '#EDE9DF',
-          dim: '#D9D4C7',
+        teal: {
+          DEFAULT: '#1A3C38',
+          soft: '#234B47',
+          muted: '#2E5D58',
         },
         accent: {
-          DEFAULT: '#E85D26',
-          light: '#F07A49',
-          dark: '#C44A18',
+          DEFAULT: '#2D9F8B',
+          light: '#4DB8A4',
+          dark: '#238573',
         },
-        status: {
-          pending: '#F59E0B',
-          'in-progress': '#3B82F6',
-          completed: '#10B981',
+        cream: {
+          DEFAULT: '#FBF9F6',
+          soft: '#F5F2EC',
+          dim: '#E8E3DA',
         },
-        priority: {
-          low: '#6EE7B7',
-          medium: '#FCD34D',
-          high: '#FCA5A5',
+        slate: {
+          DEFAULT: '#2D3748',
+          soft: '#4A5568',
+          muted: '#718096',
         },
       },
       animation: {

@@ -3,7 +3,7 @@ import axios from 'axios'
 const api = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
-  timeout: 15000,   // 15s — fail fast instead of hanging forever
+  timeout: 15000,
 })
 
 // Attach JWT on every request
@@ -18,11 +18,14 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.location.href = '/login'
+      // Only redirect to login if we're not already there
+      if (!window.location.pathname.startsWith('/login') &&
+          !window.location.pathname.startsWith('/register')) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        window.location.href = '/login'
+      }
     }
-    // Normalise network / timeout errors into a readable message
     if (!err.response) {
       err.message = err.code === 'ECONNABORTED'
         ? 'Request timed out — please try again'

@@ -39,12 +39,12 @@ export default function TemplateModal({ open, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={handleClose} />
+      <div className="absolute inset-0 bg-teal/40 dark:bg-gray-950/60 backdrop-blur-sm" onClick={handleClose} />
 
       <div className="relative w-full max-w-lg card p-6 animate-slide-up shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="font-display font-700 text-lg">New Template</h2>
-          <button onClick={handleClose} className="btn-icon text-ink/40 hover:text-ink">
+          <h2 className="font-display font-700 text-lg dark:text-gray-100">New Template</h2>
+          <button onClick={handleClose} className="btn-icon text-slate/40 hover:text-slate dark:text-gray-400 dark:hover:text-gray-200">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -64,7 +64,6 @@ export default function TemplateModal({ open, onClose, onSave }) {
               value={desc} onChange={(e) => setDesc(e.target.value)} />
           </div>
 
-          {/* Tasks list */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="label mb-0">Tasks in template</label>
@@ -79,14 +78,14 @@ export default function TemplateModal({ open, onClose, onSave }) {
 
             <div className="space-y-3">
               {tasks.map((task, i) => (
-                <div key={i} className="bg-paper-soft rounded-xl p-3 space-y-2 animate-fade-in">
+                <div key={i} className="bg-cream-soft dark:bg-gray-700/50 rounded-xl p-3 space-y-2 animate-fade-in">
                   <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-accent/10 text-accent text-[10px] font-mono font-600
+                    <span className="w-5 h-5 rounded-full bg-accent/10 dark:bg-accent/20 text-accent text-[10px] font-mono font-600
                                      flex items-center justify-center shrink-0">
                       {i + 1}
                     </span>
                     <input
-                      className="input bg-white text-sm py-1.5"
+                      className="input bg-white dark:bg-gray-800 text-sm py-1.5"
                       placeholder={`Task ${i + 1} title…`}
                       value={task.title}
                       onChange={setTask(i, 'title')}
@@ -94,7 +93,7 @@ export default function TemplateModal({ open, onClose, onSave }) {
                     />
                     {tasks.length > 1 && (
                       <button type="button" onClick={() => removeTask(i)}
-                        className="shrink-0 btn-icon text-ink/30 hover:text-red-500">
+                        className="shrink-0 btn-icon text-slate/30 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400">
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
@@ -104,12 +103,12 @@ export default function TemplateModal({ open, onClose, onSave }) {
 
                   <div className="grid grid-cols-2 gap-2 pl-7">
                     <input
-                      className="input bg-white text-xs py-1.5"
+                      className="input bg-white dark:bg-gray-800 text-xs py-1.5"
                       placeholder="Description (optional)"
                       value={task.description}
                       onChange={setTask(i, 'description')}
                     />
-                    <select className="input bg-white text-xs py-1.5" value={task.priority}
+                    <select className="input bg-white dark:bg-gray-800 text-xs py-1.5" value={task.priority}
                       onChange={setTask(i, 'priority')}>
                       {PRIORITIES.map((p) => <option key={p} value={p}>{p} priority</option>)}
                     </select>

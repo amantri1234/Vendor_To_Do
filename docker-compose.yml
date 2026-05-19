@@ -2,25 +2,19 @@ version: "3.9"
 
 services:
 
-  # ── MySQL Database ────────────────────────────────────────────────────────
-  db:
-    image: mysql:8.0
-    container_name: taskflow_db
+  # ── MongoDB Database ────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7.0
+    container_name: taskflow_mongo
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
-      MYSQL_DATABASE:      ${MYSQL_DATABASE:-todoapp}
-      MYSQL_USER:          ${MYSQL_USER:-todouser}
-      MYSQL_PASSWORD:      ${MYSQL_PASSWORD:-todopassword}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-adminpassword}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-vendor_to_do}
     volumes:
-      - mysql_data:/var/lib/mysql
-      - ./mysql/my.cnf:/etc/mysql/conf.d/taskflow.cnf:ro
-    # Do NOT expose 3306 to the host in production
-    # ports:
-    #   - "3306:3306"
+      - mongo_data:/data/db
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost",
-             "-u", "root", "--password=${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
       interval: 10s
       timeout: 5s
       retries: 10
@@ -28,20 +22,21 @@ services:
     networks:
       - taskflow_net
 
-  # ── FastAPI Backend ───────────────────────────────────────────────────────
+  # ── FastAPI Backend ─────────────────────────────────────────────────────────
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: taskflow_backend
     restart: unless-stopped
-    env_file: .env
+    env_file: ./backend/.env
     environment:
-      DATABASE_URL: mysql+pymysql://${MYSQL_USER:-todouser}:${MYSQL_PASSWORD:-todopassword}@db:3306/${MYSQL_DATABASE:-todoapp}
+      MONGODB_URL: mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-adminpassword}@mongo:27017
+      MONGODB_DB_NAME: ${MONGO_DB:-vendor_to_do}
+      DEBUG: "false"
     depends_on:
-      db:
+      mongo:
         condition: service_healthy
-    # Not exposed to host — all traffic goes through Nginx
     expose:
       - "8000"
     networks:
@@ -53,7 +48,7 @@ services:
       retries: 5
       start_period: 20s
 
-  # ── React Frontend (Nginx) ────────────────────────────────────────────────
+  # ── React Frontend (Nginx) ──────────────────────────────────────────────────
   frontend:
     build:
       context: ./frontend
@@ -69,7 +64,7 @@ services:
       - taskflow_net
 
 volumes:
-  mysql_data:
+  mongo_data:
     driver: local
 
 networks:

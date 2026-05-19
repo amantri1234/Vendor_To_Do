@@ -51,16 +51,14 @@ export default function TaskModal({ open, onClose, onSave, initial }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-teal/40 dark:bg-gray-950/60 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal */}
       <div className="relative w-full max-w-md card p-6 animate-slide-up shadow-2xl">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="font-display font-700 text-lg">
+          <h2 className="font-display font-700 text-lg dark:text-gray-100">
             {initial ? 'Edit Task' : 'New Task'}
           </h2>
-          <button onClick={onClose} className="btn-icon text-ink/40 hover:text-ink">
+          <button onClick={onClose} className="btn-icon text-slate/40 hover:text-slate dark:text-gray-400 dark:hover:text-gray-200">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>

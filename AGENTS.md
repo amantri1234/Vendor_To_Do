@@ -1,7 +1,7 @@
 # TaskFlow — Development Context
 
 ## Project Overview
-Full-stack task management app: **FastAPI + SQLite/MySQL + React (Vite) + TailwindCSS**
+Full-stack task management app: **FastAPI + MongoDB (Beanie) + React (Vite) + TailwindCSS**
 Multi-user, JWT-authenticated, with task templates.
 
 ## Architecture
@@ -11,22 +11,24 @@ vendor_to_do/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py              # FastAPI entry point + lifespan hooks
-│   │   ├── config.py            # pydantic-settings (DATABASE_URL, SECRET_KEY, etc.)
-│   │   ├── database.py          # SQLAlchemy engine (auto-detects SQLite vs MySQL)
-│   │   ├── models/models.py     # User, Task, Template, TemplateTask ORM
+│   │   ├── config.py            # pydantic-settings (MONGODB_URL, SECRET_KEY, etc.)
+│   │   ├── database.py          # Beanie + Motor (async MongoDB ODM init)
+│   │   ├── models/models.py     # User, Task, Template (embedded TemplateTasks), FailedLoginAttempt
 │   │   ├── schemas/schemas.py   # Pydantic request/response schemas
 │   │   ├── routers/
-│   │   │   ├── auth.py          # POST /auth/register, /auth/login
+│   │   │   ├── auth.py          # POST /auth/register, /auth/login (rate-limited)
 │   │   │   ├── tasks.py         # CRUD + stats + bulk-delete
 │   │   │   ├── templates.py     # CRUD + apply template
-│   │   │   └── users.py         # GET/PUT /users/me
+│   │   │   └── users.py         # GET/PUT /users/me, PUT /users/change-password
 │   │   ├── crud/
 │   │   │   ├── user_crud.py
 │   │   │   ├── task_crud.py     # pagination via skip/limit
 │   │   │   └── template_crud.py
-│   │   └── core/security.py     # JWT, bcrypt, auth dependency
-│   ├── alembic/                 # DB migrations
-│   └── .env                     # DATABASE_URL, SECRET_KEY, etc.
+│   │   └── core/
+│   │       ├── security.py      # JWT, bcrypt, auth dependency
+│   │       ├── middleware.py    # Security headers + log sanitization
+│   │       └── rate_limit.py    # slowapi limiter
+│   └── .env                     # MONGODB_URL, SECRET_KEY, etc.
 ├── frontend/
 │   ├── src/
 │   │   ├── App.jsx              # Routes
@@ -34,9 +36,9 @@ vendor_to_do/
 │   │   │   ├── Login.jsx, Register.jsx
 │   │   │   ├── Dashboard.jsx    # Task list + filters + search + sort
 │   │   │   ├── Templates.jsx    # Template management
-│   │   │   ├── Profile.jsx      # User profile (NEW)
-│   │   │   ├── Stats.jsx        # Analytics dashboard (NEW)
-│   │   │   └── About.jsx        # App info (NEW)
+│   │   │   ├── Profile.jsx      # User profile
+│   │   │   ├── Stats.jsx        # Analytics dashboard
+│   │   │   └── About.jsx        # App info
 │   │   ├── components/
 │   │   │   ├── Layout.jsx       # Sidebar nav + user info
 │   │   │   ├── TaskCard.jsx
@@ -47,7 +49,7 @@ vendor_to_do/
 │   │   ├── hooks/useTasks.js, useTemplates.js, useDebounce.js
 │   │   └── services/api.js      # Axios + interceptors
 │   └── vite.config.js           # Proxy /api → localhost:8000
-└── docker-compose.yml           # MySQL + Backend + Nginx
+└── docker-compose.yml           # MongoDB + Backend + Nginx
 ```
 
 ## Setup & Run
@@ -55,8 +57,8 @@ vendor_to_do/
 ### Backend
 ```bash
 cd backend
-cp .env.example .env   # Edit DATABASE_URL for MySQL or use SQLite default
-pip install -r requirements.txt
+cp .env.example .env   # Edit MONGODB_URL for your MongoDB instance
+pip install -r ../requirements.txt
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -75,10 +77,10 @@ docker-compose up --build
 ## API Endpoints
 
 ### Auth
-| Method | Endpoint | Auth |
-|--------|----------|------|
-| POST | /auth/register | No |
-| POST | /auth/login | No |
+| Method | Endpoint | Auth | Rate Limit |
+|--------|----------|------|------------|
+| POST | /auth/register | No | 3/min |
+| POST | /auth/login | No | 5/min |
 
 ### Tasks
 | Method | Endpoint | Auth |
@@ -105,53 +107,66 @@ docker-compose up --build
 |--------|----------|------|
 | GET | /users/me | Yes |
 | PUT | /users/me | Yes |
+| PUT | /users/change-password | Yes |
 
-## Changes Made
+## Migration: SQLite → MongoDB (Beanie)
 
-### Fixed Issues
-1. **bcrypt compatibility**: bcrypt 5.x incompatible with passlib 1.7.4. Pinned `bcrypt==4.0.1` in requirements.txt
-2. **SQLite support**: database.py now auto-detects SQLite vs MySQL (different pool classes, connect_args)
-3. **config.py**: Working with pydantic-settings v2 (class Config still works in 2.2.1)
+### What Changed
+1. **Database**: SQLite/MySQL → MongoDB via Beanie ODM + Motor
+2. **Models**: SQLAlchemy ORM models → Beanie Documents (async)
+3. **Template Tasks**: Now **embedded** inside Template documents (no separate collection)
+4. **IDs**: Auto-increment integers → MongoDB ObjectId strings
+5. **All endpoints**: Synchronous → asynchronous (async/await)
+6. **Alembic**: Removed (schemaless MongoDB)
+7. **docker-compose**: MySQL container → MongoDB container
 
-### New Backend Features
-1. **`GET /tasks/stats`** — Aggregate stats: total, pending, in-progress, completed, by priority, overdue count
-2. **`POST /tasks/bulk-delete`** — Delete multiple tasks by ID array
-3. **`DELETE /tasks/completed`** — Delete all completed tasks at once
-4. **`GET /users/me`** — Get current user profile
-5. **`PUT /users/me`** — Update current user profile (username)
-6. **Pagination** — `GET /tasks?skip=0&limit=50` for paginated task listing
+### Security Improvements
+1. **Rate Limiting**: slowapi — 5/min login, 3/min register, 200/hr global
+2. **Password Policy**: 12+ chars, uppercase, lowercase, digit, special character
+3. **Account Lockout**: 10 failed attempts → 15-min lockout (FailedLoginAttempt model)
+4. **Security Headers**: X-Content-Type-Options, X-Frame-Options, HSTS, CSP, Referrer-Policy
+5. **User Enumeration Prevention**: Generic error messages on register
+6. **Log Sanitization**: Passwords redacted from request logs
+7. **Global Exception Handler**: 500 errors don't leak stack traces
+8. **Password Change Endpoint**: PUT /users/change-password (requires current password)
+9. **Debug Mode**: Defaults to False in production
 
-### New Frontend Pages (Done)
-1. **Profile.jsx** — `/profile` — View/edit username, email display
-2. **Stats.jsx** — `/stats` — Analytics dashboard with task stats, completion rate, priority breakdown
-3. **About.jsx** — `/about` — App information page with tech stack and features
+## Design System
 
-### New Frontend Features (Done)
-1. **Bulk delete completed tasks** button on Dashboard (with confirmation flow)
-2. **Pagination controls** on Dashboard (10 tasks per page)
-3. **Updated Layout sidebar** with links to Analytics, Profile, and About pages
-4. **API integration** — usersAPI, tasksAPI.stats, tasksAPI.bulkDelete, tasksAPI.deleteCompleted
+### Color Palette
+- **navy**: #0A1628 (base), #111D35 (soft), #1A2744 (muted) — primary backgrounds
+- **gold**: #C8A96E (base), #D4BC8A (light), #A8884E (dark) — accents
+- **cream**: #F8F6F1 (base), #F0ECE4 (soft), #E0D9CC (dim) — page backgrounds
+- **charcoal**: #1E1E1E (base), #2D2D2D (soft), #4A4A4A (muted) — text
 
-## Remaining Work / Future Ideas
-- Dark mode toggle
-- Task categories/tags
-- Email notifications for due tasks
-- File attachments on tasks
-- Task sharing between users
+### Fonts
+- Headings: Playfair Display (serif, weights 500-800)
+- Body: Inter (sans-serif)
+- Mono: JetBrains Mono
 
 ## Environment Variables (.env)
 ```
-DATABASE_URL=sqlite:///./taskflow.db    # or mysql+pymysql://user:pass@host/db
+MONGODB_URL=mongodb://localhost:27017
+MONGODB_DB_NAME=vendor_to_do
 SECRET_KEY=<random-32-chars>
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
-DEBUG=true
+DEBUG=false
 CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_LOGIN=5/minute
+RATE_LIMIT_REGISTER=3/minute
+RATE_LIMIT_GLOBAL=200/hour
 ```
 
 ## Notes
-- SQLite is default for local dev. Switch DATABASE_URL for MySQL in production.
-- Tables auto-create on startup via `Base.metadata.create_all()` (dev mode).
-- JWT tokens stored in localStorage on frontend, auto-attached via Axios interceptor.
-- 401 responses auto-redirect to /login.
-- Backend auto-restarts on file changes (uvicorn --reload).
+- **MongoDB Atlas**: Use your connection string in MONGODB_URL
+- **Indexes**: Auto-created by Beanie on startup
+- **Embedded Tasks**: TemplateTask documents are embedded inside Template — faster reads
+- **202 response**: Task IDs/User IDs are now MongoDB ObjectId strings (not integers)
+- **JWT tokens**: Stored in localStorage, auto-attached via Axios interceptor
+- **401 responses**: Auto-redirect to /login (frontend handles this)
+- **Docs**: Swagger UI at /docs only when DEBUG=true
+
+## Dependencies
+- fastapi, uvicorn, beanie, motor, python-jose, passlib, bcrypt, slowapi, pydantic, pydantic-settings, python-multipart, email-validator

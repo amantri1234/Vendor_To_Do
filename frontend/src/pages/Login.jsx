@@ -25,47 +25,44 @@ export default function Login() {
   }
 
   return (
-    <div className="noise-bg min-h-screen bg-ink flex items-center justify-center p-4 relative">
-      {/* Decorative blobs */}
-      <div className="absolute top-[-80px] left-[-80px] w-72 h-72 bg-accent/20 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-[-60px] right-[-60px] w-64 h-64 bg-accent/10 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="relative z-10 w-full max-w-sm">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <span className="font-display font-800 text-4xl text-paper tracking-tight">
+    <div className="h-screen bg-gradient-to-br from-teal via-teal to-teal-soft dark:from-gray-950 dark:via-gray-900 dark:to-gray-950 flex items-center justify-center overflow-hidden">
+      <div className="w-full max-w-sm px-4">
+        <div className="text-center mb-10">
+          <span className="font-display font-700 text-3xl text-cream tracking-tight">
             Task<span className="text-accent">Flow</span>
           </span>
-          <p className="text-paper/40 text-sm mt-1 font-body">Your tasks, beautifully organized</p>
+          <p className="text-cream/40 text-sm mt-1.5 font-body tracking-wide">Enterprise task management</p>
         </div>
 
-        <div className="bg-white/5 border border-white/10 backdrop-blur-sm rounded-2xl p-6 shadow-2xl">
-          <h1 className="font-display font-700 text-paper text-xl mb-5">Welcome back</h1>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-7">
+          <h1 className="font-display font-600 text-slate dark:text-gray-100 text-lg mb-6">Sign in</h1>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="label text-paper/50">Email</label>
+              <label className="label">Email</label>
               <input
-                type="email" className="input bg-white/5 border-white/10 text-paper placeholder:text-paper/20
-                  focus:border-accent/60 focus:ring-accent/20"
-                placeholder="you@example.com"
+                type="email" className="input"
+                placeholder="you@company.com"
                 value={form.email} onChange={set('email')} required
               />
             </div>
 
             <div>
-              <label className="label text-paper/50">Password</label>
+              <label className="label">Password</label>
               <input
-                type="password" className="input bg-white/5 border-white/10 text-paper placeholder:text-paper/20
-                  focus:border-accent/60 focus:ring-accent/20"
-                placeholder="••••••••"
+                type="password" className="input"
+                placeholder="Enter your password"
                 value={form.password} onChange={set('password')} required
               />
             </div>
 
-            <button type="submit" disabled={loading} className="btn-primary w-full justify-center mt-1 py-2.5">
+            <button type="submit" disabled={loading}
+              className="w-full py-2.5 rounded-lg bg-teal text-white font-body font-medium text-sm
+                hover:bg-teal-soft transition-colors focus:outline-none focus:ring-2 focus:ring-teal/40
+                disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+            >
               {loading
-                ? <span className="flex items-center gap-2">
+                ? <span className="flex items-center justify-center gap-2">
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     Signing in…
                   </span>
@@ -73,11 +70,9 @@ export default function Login() {
             </button>
           </form>
 
-          <p className="text-center text-paper/40 text-xs mt-4">
+          <p className="text-center text-slate-muted/50 dark:text-gray-400 text-xs mt-5">
             Don't have an account?{' '}
-            <Link to="/register" className="text-accent hover:text-accent-light font-medium">
-              Register
-            </Link>
+            <Link to="/register" className="text-accent-dark hover:text-accent font-medium dark:text-accent">Register</Link>
           </p>
         </div>
       </div>
